@@ -15,6 +15,9 @@
     <!-- Iconos Phosphor -->
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
+    <script src="https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.umd.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.css" />
+
     <style>
         /* Personalización de la barra de desplazamiento */
         .scrollbar-hide::-webkit-scrollbar {
@@ -44,6 +47,11 @@
             background-image: linear-gradient(to right, #e2e8f0 1px, transparent 1px);
             background-size: 100% 100%;
         }
+
+        /* Sombra de texto (estable al exportar) */
+        .gantt-bar-label {
+            text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+        }
     </style>
 </head>
 
@@ -60,7 +68,7 @@
                 <p class="text-slate-500 text-xs mt-0.5">Compacto para presentaciones.</p>
             </div>
 
-            <button onclick="exportToPNG()"
+            <button id="exportBtn" onclick="exportToPNG()"
                 class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded shadow-sm flex items-center gap-2 transition-all font-medium text-xs">
                 <i class="ph ph-download-simple text-base"></i> Exportar PNG
             </button>
@@ -276,8 +284,8 @@
                 barCell.style.gridColumnEnd = task.end + 2;
 
                 // Barra reducida: h-6 (24px)
-                barCell.className = `h-6 rounded shadow-sm flex items-center justify-center text-[10px] text-white font-medium ${task.color} bg-opacity-90 border border-white/20 mx-0.5 relative`;
-                barCell.innerHTML = `<span class="drop-shadow-md px-1 w-full text-center whitespace-nowrap overflow-hidden z-10">${task.end - task.start + 1}s</span>`;
+                barCell.className = `gantt-bar h-6 rounded shadow-sm flex items-center justify-center text-[10px] text-white font-medium ${task.color} bg-opacity-90 border border-white/20 mx-0.5 relative`;
+                barCell.innerHTML = `<span class="gantt-bar-label px-1 w-full h-full flex items-center justify-center whitespace-nowrap overflow-hidden z-10">${task.end - task.start + 1}s</span>`;
 
                 barCell.title = `${task.name}: S${task.start}-S${task.end}`;
 
@@ -316,6 +324,7 @@
         // --- Exportación a Imagen ---
         async function exportToPNG() {
             const element = document.getElementById('gantt-container');
+            const exportBtn = document.getElementById('exportBtn');
 
             const projectNameInput = document.getElementById('projectName').value.trim();
             const titleContainer = document.getElementById('project-title-display');
@@ -325,65 +334,98 @@
 
             titleContainer.classList.remove('hidden');
 
+            const prevBtnHTML = exportBtn?.innerHTML;
+            if (exportBtn) {
+                exportBtn.disabled = true;
+                exportBtn.classList.add('opacity-60', 'cursor-not-allowed');
+                exportBtn.innerHTML = `<i class="ph ph-circle-notch text-base animate-spin"></i> Generando...`;
+            }
+
             try {
+                // Evita capturar antes de que las fuentes estén listas
+                if (document.fonts && document.fonts.ready) {
+                    try { await document.fonts.ready; } catch { /* ignore */ }
+                }
+
                 const canvas = await html2canvas(element, {
-                    backgroundColor: null,
-                    scale: 3,
+                    backgroundColor: '#ffffff',
+                    scale: 2,
                     logging: false,
                     useCORS: true,
                     onclone: (clonedDoc) => {
                         const clonedElement = clonedDoc.getElementById('gantt-container');
+                        if (!clonedElement) return;
 
-                        // Ajustes compactos para exportación
                         clonedElement.style.overflow = 'visible';
-                        clonedElement.style.height = 'auto';
                         clonedElement.style.width = 'fit-content';
-                        clonedElement.style.padding = "20px"; // Padding reducido
+                        clonedElement.style.height = 'auto';
+                        clonedElement.style.padding = '20px';
 
-                        // Textos de Tareas
+                        // Texto de tareas (columna izquierda)
                         const textCells = clonedElement.querySelectorAll('.font-medium.text-xs');
                         textCells.forEach(cell => {
                             cell.style.overflow = 'visible';
                             cell.style.whiteSpace = 'normal';
                             cell.style.height = 'auto';
-                            cell.style.minHeight = '24px'; // Igualar altura barra compacta
+                            cell.style.minHeight = '24px';
                             cell.style.display = 'flex';
                             cell.style.alignItems = 'center';
                             cell.style.lineHeight = '1.2';
                         });
 
                         // Barras
-                        const bars = clonedElement.querySelectorAll('[class*="bg-opacity-90"]');
+                        const bars = clonedElement.querySelectorAll('.gantt-bar');
                         bars.forEach(bar => {
                             bar.style.display = 'flex';
                             bar.style.alignItems = 'center';
                             bar.style.justifyContent = 'center';
                             bar.style.lineHeight = 'normal';
+                            bar.style.position = 'relative';
                         });
 
-                        // Texto dentro barras
-                        const barSpans = clonedElement.querySelectorAll('.drop-shadow-md');
-                        barSpans.forEach(span => {
+                        // Texto dentro de las barras - centrado estable para html2canvas
+                        const barLabels = clonedElement.querySelectorAll('.gantt-bar-label');
+                        barLabels.forEach(span => {
                             span.style.overflow = 'visible';
                             span.style.whiteSpace = 'nowrap';
-                            span.style.display = 'inline-block';
-                            span.style.transform = 'translateY(-0.5px)';
+                            span.style.display = 'block';
+                            span.style.position = 'absolute';
+                            span.style.left = '50%';
+                            span.style.top = '50%';
+                            span.style.transform = 'translate(-50%, -50%)';
+                            span.style.width = 'auto';
+                            span.style.height = 'auto';
+                            span.style.lineHeight = '1';
+                            span.style.textShadow = '0 1px 1px rgba(0,0,0,0.35)';
                         });
                     }
                 });
+
+                const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+
+                if (!blob) {
+                    throw new Error('No se pudo generar el PNG.');
+                }
 
                 const safeName = (projectNameInput || 'gantt').replace(/[^a-z0-9]/gi, '-').toLowerCase();
 
                 const link = document.createElement('a');
                 link.download = `${safeName}.png`;
-                link.href = canvas.toDataURL('image/png');
+                const url = URL.createObjectURL(blob);
+                link.href = url;
                 link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
 
             } catch (err) {
                 console.error("Error al exportar:", err);
                 alert("Hubo un error al generar la imagen.");
             } finally {
                 titleContainer.classList.add('hidden');
+                if (exportBtn) {
+                    exportBtn.disabled = false;
+                    exportBtn.classList.remove('opacity-60', 'cursor-not-allowed');
+                    exportBtn.innerHTML = prevBtnHTML || `<i class="ph ph-download-simple text-base"></i> Exportar PNG`;
+                }
             }
         }
     </script>
