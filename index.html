@@ -17,6 +17,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.umd.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/frappe-gantt/dist/frappe-gantt.css" />
+    <link rel="stylesheet" href="assets/toastify-helpers.css" />
 
     <style>
         /* Personalización de la barra de desplazamiento */
@@ -116,10 +117,14 @@
                             <input type="number" id="endWeek" min="1" value="3"
                                 class="w-full bg-white border border-slate-300 rounded p-1.5 text-xs focus:ring-indigo-500 focus:border-indigo-500">
                         </div>
-                        <div class="md:col-span-3 flex items-end">
-                            <button onclick="addTask()"
+                        <div class="md:col-span-3 flex items-end gap-2">
+                            <button id="saveTaskBtn" onclick="saveTask()"
                                 class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded text-xs px-3 py-1.5 text-center transition-colors">
                                 Agregar
+                            </button>
+                            <button id="cancelEditBtn" onclick="cancelEdit()" type="button"
+                                class="hidden w-full bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium rounded text-xs px-3 py-1.5 text-center transition-colors">
+                                Cancelar
                             </button>
                         </div>
                     </div>
@@ -169,6 +174,7 @@
 
     </div>
 
+    <script src="assets/toastify-helpers.js"></script>
     <script>
         // --- Estado de la Aplicación ---
         let tasks = [
@@ -176,6 +182,7 @@
             { id: 2, name: "Desarrollo", start: 3, end: 6, color: "bg-indigo-500" },
             { id: 3, name: "Integración", start: 5, end: 8, color: "bg-violet-500" }
         ];
+        let editingTaskId = null;
 
         // Colores para rotar
         const colors = [
@@ -196,33 +203,45 @@
             renderGantt();
         }
 
-        function addTask() {
+        function saveTask() {
             const name = document.getElementById('taskName').value.trim();
             const start = parseInt(document.getElementById('startWeek').value);
             const end = parseInt(document.getElementById('endWeek').value);
             const totalWeeks = parseInt(document.getElementById('totalWeeks').value);
 
             // Validaciones
-            if (!name) return alert("Por favor escribe una descripción.");
-            if (start > end) return alert("Inicio no puede ser posterior a fin.");
-            if (start < 1) return alert("Inicio debe ser al menos 1.");
-            if (end > totalWeeks) return alert(`Fin excede duración (${totalWeeks}).`);
+            if (!name) return ToastifyUtils.warning("Por favor escribe una descripción.");
+            if (start > end) return ToastifyUtils.error("Inicio no puede ser posterior a fin.");
+            if (start < 1) return ToastifyUtils.warning("Inicio debe ser al menos 1.");
+            if (end > totalWeeks) return ToastifyUtils.error(`Fin excede duración (${totalWeeks}).`);
 
-            // Crear Tarea
-            const newTask = {
-                id: Date.now(),
-                name: name,
-                start: start,
-                end: end,
-                color: colors[tasks.length % colors.length]
-            };
-
-            tasks.push(newTask);
+            if (editingTaskId !== null) {
+                const task = tasks.find(t => t.id === editingTaskId);
+                if (task) {
+                    task.name = name;
+                    task.start = start;
+                    task.end = end;
+                } else {
+                    tasks.push({
+                        id: Date.now(),
+                        name: name,
+                        start: start,
+                        end: end,
+                        color: colors[tasks.length % colors.length]
+                    });
+                }
+            } else {
+                tasks.push({
+                    id: Date.now(),
+                    name: name,
+                    start: start,
+                    end: end,
+                    color: colors[tasks.length % colors.length]
+                });
+            }
 
             // Limpiar inputs
-            document.getElementById('taskName').value = '';
-            document.getElementById('startWeek').value = end + 1 <= totalWeeks ? end + 1 : totalWeeks;
-            document.getElementById('endWeek').value = end + 2 <= totalWeeks ? end + 2 : totalWeeks;
+            resetTaskForm(end, totalWeeks);
 
             renderGantt();
             renderTaskList();
@@ -230,8 +249,38 @@
 
         function deleteTask(id) {
             tasks = tasks.filter(t => t.id !== id);
+            if (editingTaskId === id) {
+                resetTaskForm();
+            }
             renderGantt();
             renderTaskList();
+        }
+
+        function editTask(id) {
+            const task = tasks.find(t => t.id === id);
+            if (!task) return;
+            editingTaskId = id;
+            document.getElementById('taskName').value = task.name;
+            document.getElementById('startWeek').value = task.start;
+            document.getElementById('endWeek').value = task.end;
+            document.getElementById('saveTaskBtn').textContent = 'Actualizar';
+            document.getElementById('cancelEditBtn').classList.remove('hidden');
+        }
+
+        function cancelEdit() {
+            resetTaskForm();
+        }
+
+        function resetTaskForm(lastEnd = null, totalWeeksOverride = null) {
+            const totalWeeks = totalWeeksOverride ?? parseInt(document.getElementById('totalWeeks').value);
+            document.getElementById('taskName').value = '';
+            if (lastEnd !== null) {
+                document.getElementById('startWeek').value = lastEnd + 1 <= totalWeeks ? lastEnd + 1 : totalWeeks;
+                document.getElementById('endWeek').value = lastEnd + 2 <= totalWeeks ? lastEnd + 2 : totalWeeks;
+            }
+            editingTaskId = null;
+            document.getElementById('saveTaskBtn').textContent = 'Agregar';
+            document.getElementById('cancelEditBtn').classList.add('hidden');
         }
 
         function renderGantt() {
@@ -312,9 +361,14 @@
                                 <p class="text-[10px] text-slate-500">Sem ${task.start} - ${task.end}</p>
                             </div>
                         </div>
-                        <button onclick="deleteTask(${task.id})" class="text-slate-400 hover:text-red-500 p-1 transition-colors" title="Eliminar">
-                            <i class="ph ph-trash text-base"></i>
-                        </button>
+                        <div class="flex items-center gap-1">
+                            <button onclick="editTask(${task.id})" class="text-slate-400 hover:text-indigo-600 p-1 transition-colors" title="Editar">
+                                <i class="ph ph-pencil-simple text-base"></i>
+                            </button>
+                            <button onclick="deleteTask(${task.id})" class="text-slate-400 hover:text-red-500 p-1 transition-colors" title="Eliminar">
+                                <i class="ph ph-trash text-base"></i>
+                            </button>
+                        </div>
                     </div>
                 `;
             });
@@ -418,7 +472,7 @@
 
             } catch (err) {
                 console.error("Error al exportar:", err);
-                alert("Hubo un error al generar la imagen.");
+                ToastifyUtils.error("Hubo un error al generar la imagen.");
             } finally {
                 titleContainer.classList.add('hidden');
                 if (exportBtn) {

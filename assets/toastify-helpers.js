@@ -141,7 +141,7 @@ const ToastifyUtils = (() => {
         () => {
           if (el.parentElement) el.parentElement.removeChild(el);
         },
-        { once: true }
+        { once: true },
       );
     };
 
